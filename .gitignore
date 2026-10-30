@@ -398,3 +398,5 @@ FodyWeavers.xsd
 *.sln.iml
 
 .idea
+# Local game test runs (logs, results, save backups)
+.test-runs/

@@ -1,4 +1,5 @@
 ﻿using CosmicHorrorFishingBuddies.Core;
+using CosmicHorrorFishingBuddies.Testing;
 using CosmicHorrorFishingBuddies.UI;
 using CosmicHorrorFishingBuddies.Util;
 using Newtonsoft.Json;
@@ -25,6 +26,12 @@ internal class DebugController : MonoBehaviour
 
 	[JsonProperty]
 	public int QuickLoadSlot = 0;
+
+	/// <summary>
+	/// Runs the in-game test scenarios once connected, then quits. Set by tools/run-game-tests.ps1.
+	/// </summary>
+	[JsonProperty]
+	public bool TestMode = false;
 
 	[JsonProperty]
 	public int Timeout = 25;
@@ -108,5 +115,10 @@ internal class DebugController : MonoBehaviour
 		var debugDisplay = new GameObject("DebugDisplay").AddComponent<DebugDisplay>();
 		debugDisplay.transform.parent = GameObject.Find("GameCanvases/GameCanvas").transform;
 		debugDisplay.transform.localPosition = new Vector3(-700, 400, 0);
+
+		if (TestMode)
+		{
+			new GameObject(nameof(TestRunner)).AddComponent<TestRunner>();
+		}
 	}
 }

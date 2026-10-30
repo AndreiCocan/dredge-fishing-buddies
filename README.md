@@ -53,3 +53,16 @@ Download the DREDGE Mod Manager from [dredgemods.com](https://dredgemods.com/)!
   - [kcp2k](https://github.com/vis2k/kcp2k)
   - [EpicOnlineTransport](https://github.com/FakeByte/EpicOnlineTransport)
 - [HarmonyX](https://github.com/BepInEx/HarmonyX)
+
+## Testing
+Builds run on every push and pull request (`.github/workflows/build.yml`).
+
+The multiplayer features are tested in the real game. With DREDGE and [Winch](https://github.com/DREDGE-Mods/Winch/releases) installed, run:
+
+```powershell
+./tools/run-game-tests.ps1
+```
+
+The script builds the mod, deploys it to your DREDGE `Mods` folder, starts a host and a client instance on this machine, and runs every scenario in `CosmicHorrorFishingBuddies/Testing/Scenarios.cs` in both. It prints PASS/FAIL per scenario per role and exits non-zero on any failure. Your saves and settings are backed up first and restored afterwards; the test plays on its own slot (2), seeded from your slot 0 or from `-Save <file>`. Logs and results for each run land in `.test-runs/<timestamp>/`.
+
+To cover a new feature, add a scenario to `Scenarios.All`: a host body, a client body, or one body for both. `TestContext.Share`/`Receive` pass values between the two instances.
