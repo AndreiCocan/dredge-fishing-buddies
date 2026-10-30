@@ -6,7 +6,7 @@
 
 A WIP multiplayer mod for DREDGE. Currently early alpha and might not work as intended. Installable using the [Dredge Mod Manager](https://github.com/DREDGE-Mods/DredgeModManager).
 
-Unfortunately connecting via EOS does **NOT** work with the Epic Games store version. This means you will have to manually set up port forwarding or use a VPN connection service. When connecting via IP adress the port used is **7777**.
+Unfortunately connecting with a connection code (EOS) does **NOT** work with the Epic Games store version. This means you will have to manually set up port forwarding or use a VPN connection service. When connecting via IP adress the port used is **7777**.
 
 ![cosmic horror fishing buddies](https://github.com/xen-42/cosmic-horror-fishing-buddies/assets/22628069/47687a63-0313-41dd-9d79-adcf58372c06)
 
@@ -21,8 +21,9 @@ Download the DREDGE Mod Manager from [dredgemods.com](https://dredgemods.com/)!
 - Engine sounds & ship wake
 - Time
   - Fast forwarding - all players must be fast-forwarding too or at least in port for time to speed up
-- Fishing spots
-  - Stock is synced but "special" status isn't currently
+- Fishing and dredge spots
+  - Stock and "special" status, including for players who join later
+  - One-off spots such as quest relics stay available to each player
 - Abilities
   - Light
   - Foghorn
@@ -32,7 +33,9 @@ Download the DREDGE Mod Manager from [dredgemods.com](https://dredgemods.com/)!
   - Haste (missing vfx)
   - Trawl net
   - Bait
-  - Crab pots (inventory not yet synced)
+  - Crab pots, including their contents and pots placed before a player joined
+- Weather, per zone, and waves
+- The banish machine
 - Ship appearance
   - Rigidbody boat assets (net, tires) don't animate yet
 - World Events
@@ -42,9 +45,7 @@ Download the DREDGE Mod Manager from [dredgemods.com](https://dredgemods.com/)!
 
 #### What is not synced (roadmap):
 - Location/quest specific details
-- Weather
 - Enemies
-- Waves
 - Collisions?
 
 ## Dependencies (included)
