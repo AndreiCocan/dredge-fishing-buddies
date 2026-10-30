@@ -26,7 +26,7 @@ namespace CosmicHorrorFishingBuddies.Util
 			audioSource.loop = loop;
 			audioSource.playOnAwake = loop;
 
-			go.AddComponent<AudioMixerGroupFixer>();
+			AudioMixerGroupFixer.RouteToWorldSFX(audioSource);
 
 			return audioSource;
 		}

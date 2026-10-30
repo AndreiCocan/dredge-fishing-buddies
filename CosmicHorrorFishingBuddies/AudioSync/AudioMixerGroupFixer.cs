@@ -1,16 +1,31 @@
-﻿using System.Linq;
+﻿using CosmicHorrorFishingBuddies.Core;
+using System.Linq;
 using UnityEngine;
-using UnityEngine.Audio;
 
 namespace CosmicHorrorFishingBuddies.AudioSync
 {
-	[RequireComponent(typeof(AudioSource))]
-	internal class AudioMixerGroupFixer : MonoBehaviour
+	/// <summary>
+	/// Routes the mod's audio sources through the game's world SFX mixer group, so they follow the player's volume
+	/// settings. The game loads its mixer asynchronously, so routing waits for it.
+	/// </summary>
+	internal static class AudioMixerGroupFixer
 	{
-		public void Start()
+		public static void RouteToWorldSFX(AudioSource audioSource)
 		{
-			GetComponent<AudioSource>().outputAudioMixerGroup = GameObject.FindObjectsOfType<AudioMixerGroup>().First(x => x.name == "WorldSFX");
-			Component.Destroy(this);
+			Delay.RunWhen(
+				() => audioSource == null || (GameManager.Instance != null && GameManager.Instance.AudioPlayer != null && GameManager.Instance.AudioPlayer.IsMixerLoaded),
+				() =>
+				{
+					if (audioSource == null) return;
+
+					var group = GameManager.Instance.AudioPlayer.AudioMixer.FindMatchingGroups("WorldSFX").FirstOrDefault();
+					if (group == null)
+					{
+						CFBCore.LogError("The game's mixer has no WorldSFX group; other players' sounds ignore the volume settings");
+						return;
+					}
+					audioSource.outputAudioMixerGroup = group;
+				});
 		}
 	}
 }
