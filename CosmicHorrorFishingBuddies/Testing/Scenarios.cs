@@ -37,6 +37,7 @@ internal static class Scenarios
 			ctx => WatchSpotStock(ctx, "spot.restocking", expectChange: true), ctx => HarvestSpot(ctx, "spot.restocking", restocks: true)),
 		new("dredging a one-off spot (quest relics) leaves it for the other player",
 			ctx => WatchSpotStock(ctx, "spot.oneoff", expectChange: false), ctx => HarvestSpot(ctx, "spot.oneoff", restocks: false)),
+		TestScenario.Everyone("fishing and dredge spots with stock show their particles", SpotsWithStockShowParticles),
 		TestScenario.Everyone("network traffic and frame times stay steady", TrafficAndFrameTimesSteady, 30),
 		TestScenario.Everyone("the mod logged no errors", NoModErrors),
 	};
@@ -385,6 +386,21 @@ internal static class Scenarios
 			Expect.That(Stock(spot) >= before, $"{ctx.OtherRole}'s harvest took the item here too ({before} -> {Stock(spot)})");
 		}
 		ctx.Share(key + ".checked", "");
+	}
+
+	private static IEnumerator SpotsWithStockShowParticles(TestContext ctx)
+	{
+		var spots = NetworkHarvestPOIManager.Instance.SortedHarvestPOIs
+			.Where(spot => spot != null && spot.harvestParticles != null && Stock(spot) >= 1f)
+			.ToList();
+		Expect.That(spots.Count > 0, "no spots with stock and particles in this save");
+
+		var hidden = spots.Where(spot => spot.harvestParticles.ParticlesAmount != Mathf.FloorToInt(Stock(spot))).ToList();
+		var dredgeHidden = hidden.Count(spot => spot.IsDredgePOI);
+		Expect.That(hidden.Count == 0,
+			$"{hidden.Count}/{spots.Count} spots show the wrong particle count ({dredgeHidden} of them dredge spots), " +
+			$"e.g. {hidden.Select(s => $"{s.name}: {s.harvestParticles.ParticlesAmount} for stock {Stock(s)}").FirstOrDefault()}");
+		yield break;
 	}
 
 	private static IEnumerator NoModErrors(TestContext ctx)
