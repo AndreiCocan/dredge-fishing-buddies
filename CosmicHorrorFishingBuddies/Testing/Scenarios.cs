@@ -1,4 +1,5 @@
 using CosmicHorrorFishingBuddies.Core;
+using CosmicHorrorFishingBuddies.HarvestPOISync;
 using CosmicHorrorFishingBuddies.PlayerSync;
 using HarmonyLib;
 using System;
@@ -21,6 +22,8 @@ internal static class Scenarios
 		TestScenario.Both("every Harmony patch is applied to this game version", AllPatchesApplied),
 		TestScenario.Both("both players see each other", BothPlayersPresent),
 		TestScenario.Both("stationary boats are drawn where they are when a player joins", StationaryBoatsVisibleOnJoin),		TestScenario.Both("time of day matches the host", TimeOfDayMatches),
+		TestScenario.Both("each player sees the other's saved crab pots", SavedCrabPotsVisibleToOtherPlayer),
+		TestScenario.Both("the mod logged no errors", NoModErrors),
 	};
 
 	private static readonly Type[] PatchMethodAttributes =
@@ -92,6 +95,33 @@ internal static class Scenarios
 	}
 
 	private static IEnumerator StationaryBoatsVisibleOnJoin(TestContext ctx) => RemoteBoatMatchesReportedPosition(ctx, "position.stationary");
+
+	private static int CrabPotsOwnedBy(Func<uint, bool> owner) =>
+		NetworkHarvestPOIManager.Instance.CrabPots.Count(pot => pot.Target != null && owner(pot.OwnerID));
+
+	private static IEnumerator SavedCrabPotsVisibleToOtherPlayer(TestContext ctx)
+	{
+		var self = PlayerManager.LocalNetID;
+		var savedPots = GameManager.Instance.SaveData.serializedCrabPotPOIs.Count;
+		Expect.That(savedPots > 0, "the test save has no deployed crab pots");
+
+		yield return Expect.Until(() => CrabPotsOwnedBy(id => id == self) >= savedPots, 20,
+			$"own crab pots on the network ({CrabPotsOwnedBy(id => id == self)}/{savedPots})");
+		var own = CrabPotsOwnedBy(id => id == self);
+		ctx.Share("pots", own);
+
+		var theirs = 0;
+		yield return ctx.Receive("pots", s => theirs = int.Parse(s));
+		yield return Expect.Until(() => CrabPotsOwnedBy(id => id != self) == theirs, 20,
+			$"{theirs} crab pots from {ctx.OtherRole} (see {CrabPotsOwnedBy(id => id != self)})");
+	}
+
+	private static IEnumerator NoModErrors(TestContext ctx)
+	{
+		Expect.That(CFBCore.LoggedErrors.Count == 0,
+			$"{CFBCore.LoggedErrors.Count} errors, first: {CFBCore.LoggedErrors.FirstOrDefault()}");
+		yield break;
+	}
 
 	private static IEnumerator TimeOfDayMatches(TestContext ctx)
 	{

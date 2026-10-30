@@ -18,6 +18,7 @@ namespace CosmicHorrorFishingBuddies.HarvestPOISync
 
 		private Dictionary<BaitHarvestPOI, NetworkBaitHarvestPOI> _baitLookUp = new();
 		private Dictionary<PlacedHarvestPOI, NetworkPlacedHarvestPOI> _crabLookUp = new();
+		public IEnumerable<NetworkPlacedHarvestPOI> CrabPots => _crabLookUp.Values;
 
 		public void Start()
 		{

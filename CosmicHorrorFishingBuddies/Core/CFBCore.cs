@@ -6,6 +6,7 @@ using HarmonyLib;
 using Mirror;
 using Sirenix.Utilities;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -64,6 +65,11 @@ namespace CosmicHorrorFishingBuddies.Core
 		private void Application_logMessageReceived(string condition, string stackTrace, LogType type)
 		{
 			LogInfo($"{condition} : {stackTrace}");
+
+			if (type == LogType.Exception && stackTrace.Contains(nameof(CosmicHorrorFishingBuddies)))
+			{
+				LoggedErrors.Add($"{condition} : {stackTrace}");
+			}
 		}
 
 		public static string GetModFolder() => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
@@ -118,8 +124,14 @@ namespace CosmicHorrorFishingBuddies.Core
 			catch { }
 		}
 
+		/// <summary>
+		/// Every error this mod logged or threw this session, for the in-game tests to assert on.
+		/// </summary>
+		public static readonly List<string> LoggedErrors = new();
+
 		public static void LogError(object msg)
 		{
+			LoggedErrors.Add(msg?.ToString());
 			try
 			{
 				WinchCore.Log.Error(msg);
