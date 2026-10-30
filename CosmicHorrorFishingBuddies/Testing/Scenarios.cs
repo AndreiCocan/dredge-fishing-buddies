@@ -38,6 +38,8 @@ internal static class Scenarios
 		new("dredging a one-off spot (quest relics) leaves it for the other player",
 			ctx => WatchSpotStock(ctx, "spot.oneoff", expectChange: false), ctx => HarvestSpot(ctx, "spot.oneoff", restocks: false)),
 		TestScenario.Everyone("fishing and dredge spots with stock show their particles", SpotsWithStockShowParticles),
+		TestScenario.Both("special fishing spots match the host", SpecialSpotsMatchHost),
+		TestScenario.Both("fishing spot stock matches the host", SpotStockMatchesHost),
 		TestScenario.Everyone("network traffic and frame times stay steady", TrafficAndFrameTimesSteady, 30),
 		TestScenario.Everyone("the mod logged no errors", NoModErrors),
 	};
@@ -402,6 +404,36 @@ internal static class Scenarios
 			$"e.g. {hidden.Select(s => $"{s.name}: {s.harvestParticles.ParticlesAmount} for stock {Stock(s)}").FirstOrDefault()}");
 		yield break;
 	}
+
+	/// <summary>
+	/// One line per spot the host syncs (restocking, not bait or pots), keyed by position.
+	/// </summary>
+	private static string SyncedSpots(Func<HarvestPOI, string> state) => string.Join("\n", NetworkHarvestPOIManager.Instance.SortedHarvestPOIs
+		.Where(spot => spot != null && !spot.IsCrabPotPOI && !spot.IsBaitPOI && spot.Harvestable.GetDoesRestock())
+		.Select(spot => FormattableString.Invariant($"{spot.transform.position.x:F1},{spot.transform.position.z:F1}: {state(spot)}"))
+		.OrderBy(line => line));
+
+	private static IEnumerator CompareSyncedSpots(TestContext ctx, string key, Func<HarvestPOI, string> state)
+	{
+		static string FirstDifference(string a, string b)
+		{
+			var differing = a.Split('\n').Zip(b.Split('\n'), (x, y) => (x, y)).Where(pair => pair.x != pair.y).ToList();
+			return differing.Count == 0 ? "different spot lists" : $"{differing.Count} spots, first {differing[0].x} vs {differing[0].y}";
+		}
+
+		return KeepComparing(ctx, key,
+			() => SyncedSpots(state),
+			reported => reported == SyncedSpots(state),
+			reported => reported == null
+				? $"{ctx.OtherRole} never reported its spots"
+				: $"spots differ from {ctx.OtherRole}'s, first: {FirstDifference(SyncedSpots(state), reported)}");
+	}
+
+	private static IEnumerator SpecialSpotsMatchHost(TestContext ctx) =>
+		CompareSyncedSpots(ctx, "spots.special", spot => spot.IsCurrentlySpecial ? "special" : "-");
+
+	private static IEnumerator SpotStockMatchesHost(TestContext ctx) =>
+		CompareSyncedSpots(ctx, "spots.stock", spot => Mathf.FloorToInt(Stock(spot)).ToString(CultureInfo.InvariantCulture));
 
 	private static IEnumerator NoModErrors(TestContext ctx)
 	{
