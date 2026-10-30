@@ -41,6 +41,8 @@ internal static class Scenarios
 		TestScenario.Both("special fishing spots match the host", SpecialSpotsMatchHost),
 		TestScenario.Both("fishing spot stock matches the host", SpotStockMatchesHost),
 		TestScenario.Everyone("network traffic and frame times stay steady", TrafficAndFrameTimesSteady, 30),
+		TestScenario.Everyone("other players' sounds follow the game's volume settings", RemoteSoundsUseGameMixer),
+		new("the host's light flicker plays for the other player without hitches", FlickerOwnLights, ExpectSmoothFlicker),
 		TestScenario.Everyone("the mod logged no errors", NoModErrors),
 	};
 
@@ -434,6 +436,44 @@ internal static class Scenarios
 
 	private static IEnumerator SpotStockMatchesHost(TestContext ctx) =>
 		CompareSyncedSpots(ctx, "spots.stock", spot => Mathf.FloorToInt(Stock(spot)).ToString(CultureInfo.InvariantCulture));
+
+	private static IEnumerator RemoteSoundsUseGameMixer(TestContext ctx)
+	{
+		// A source without a mixer group bypasses the player's volume settings
+		var unrouted = RemotePlayers()
+			.SelectMany(player => player.GetComponentsInChildren<AudioSource>(true))
+			.Where(source => source.outputAudioMixerGroup == null)
+			.Select(source => source.gameObject.name)
+			.ToList();
+		Expect.That(RemotePlayers().Any(), "no remote players");
+		Expect.That(unrouted.Count == 0, $"{unrouted.Count} remote sounds skip the game's mixer: {string.Join(", ", unrouted.Distinct())}");
+		yield break;
+	}
+
+	private static IEnumerator FlickerOwnLights(TestContext ctx)
+	{
+		yield return ctx.Receive("flicker.watching", _ => { });
+		NetworkPlayer.LocalPlayer.remoteLightAbility.FlickerLights();
+		ctx.Share("flicker.started", "");
+		yield return ctx.Receive("flicker.checked", _ => { }, 15);
+	}
+
+	private static IEnumerator ExpectSmoothFlicker(TestContext ctx)
+	{
+		ctx.Share("flicker.watching", "");
+		yield return ctx.Receive("flicker.started", _ => { });
+
+		var hitches = new List<float>();
+		var end = Time.realtimeSinceStartup + 3f;
+		while (Time.realtimeSinceStartup < end)
+		{
+			if (Time.unscaledDeltaTime > 0.1f) hitches.Add(Time.unscaledDeltaTime);
+			yield return null;
+		}
+		ctx.Share("flicker.checked", "");
+		Expect.That(hitches.Count == 0,
+			$"{hitches.Count} frames over 100ms after the flicker, longest {hitches.DefaultIfEmpty().Max() * 1000:F0}ms");
+	}
 
 	private static IEnumerator NoModErrors(TestContext ctx)
 	{
