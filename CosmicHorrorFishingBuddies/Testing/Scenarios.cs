@@ -26,6 +26,11 @@ internal static class Scenarios
 		TestScenario.Both("each player sees the other's saved crab pots", SavedCrabPotsVisibleToOtherPlayer),
 		TestScenario.Both("crab pot contents match the owner's", CrabPotContentsMatchOwner),
 		new("fish added to a pot reach the other player, fish taken out leave the owner's pot", AddFishToOwnPot, TakeFishFromRemotePot),
+		TestScenario.Both("the wave clock matches the host", WaveClockMatchesHost),
+		new("the host's weather change reaches a player in the same zone",
+			ctx => ChangeWeather(ctx, "weather.host"), ctx => FollowWeather(ctx, "weather.host")),
+		new("a client's weather change reaches the host in the same zone",
+			ctx => FollowWeather(ctx, "weather.client"), ctx => ChangeWeather(ctx, "weather.client")),
 		TestScenario.Both("the mod logged no errors", NoModErrors),
 	};
 
@@ -199,6 +204,55 @@ internal static class Scenarios
 		ctx.Share("taken", "");
 
 		yield return ctx.Receive("emptied", _ => { }, 15);
+	}
+
+	private static IEnumerator WaveClockMatchesHost(TestContext ctx)
+	{
+		// Mirror's NetworkTime is shared, so the other side's reading can be carried forward to now
+		float Drift(string reported)
+		{
+			var parts = reported.Split(',');
+			var expected = Mathf.Repeat(float.Parse(parts[0], CultureInfo.InvariantCulture)
+				+ (float)(Mirror.NetworkTime.time - double.Parse(parts[1], CultureInfo.InvariantCulture)), 1000f);
+			var difference = Mathf.Abs(GameManager.Instance.gameTime - expected);
+			return Mathf.Min(difference, 1000f - difference);
+		}
+
+		return KeepComparing(ctx, "wave.clock",
+			() => FormattableString.Invariant($"{GameManager.Instance.gameTime},{Mirror.NetworkTime.time}"),
+			reported => Drift(reported) < 0.25f,
+			reported => reported == null
+				? $"{ctx.OtherRole} never reported its wave clock"
+				: $"wave clock is {Drift(reported):F2}s off {ctx.OtherRole}'s");
+	}
+
+	private static string CurrentWeather() => GameManager.Instance.WeatherController.CurrentWeatherData.name;
+
+	private static IEnumerator ChangeWeather(TestContext ctx, string key)
+	{
+		// Pick a weather neither player has, or the follower could pass without anything syncing
+		var followerWeather = "";
+		yield return ctx.Receive(key + ".before", s => followerWeather = s);
+
+		var zone = GameManager.Instance.Player.PlayerZoneDetector.GetCurrentZone();
+		var weather = GameManager.Instance.DataLoader.allWeather
+			.FirstOrDefault(w => w.permittedZones.HasFlag(zone) && w.name != CurrentWeather() && w.name != followerWeather);
+		Expect.That(weather != null, $"no third weather is allowed in {zone}");
+
+		GameManager.Instance.WeatherController.ChangeWeather(weather);
+		ctx.Share(key, weather.name);
+		yield return ctx.Receive(key + ".seen", _ => { }, 15);
+	}
+
+	private static IEnumerator FollowWeather(TestContext ctx, string key)
+	{
+		ctx.Share(key + ".before", CurrentWeather());
+
+		var weather = "";
+		yield return ctx.Receive(key, s => weather = s);
+		yield return Expect.Until(() => CurrentWeather() == weather, 10,
+			$"{ctx.OtherRole}'s weather {weather} (have {CurrentWeather()})");
+		ctx.Share(key + ".seen", "");
 	}
 
 	private static IEnumerator NoModErrors(TestContext ctx)
