@@ -22,29 +22,36 @@ namespace CosmicHorrorFishingBuddies.HarvestPOISync
 		}
 
 		[ClientRpc]
-		private void RpcSetStockCount(float count)
+		private void RpcSetStockCount(float count) => ApplyStockCount(count);
+
+		private void ApplyStockCount(float count)
 		{
+			// Do not allow syncing of spots which do not restock; infinity means the host has not reported a count yet
+			if (Target == null || float.IsInfinity(count) || !Target.harvestable.GetDoesRestock()) return;
+
 			try
 			{
-				// Do not allow syncing of spots which do not restock
-				if (Target.harvestable.GetDoesRestock())
-				{
-					HarvestPOIPatches.disabled = true;
+				HarvestPOIPatches.disabled = true;
 
-					var dStock = count - Target.Stock;
-					Target.harvestable.AddStock(dStock, false);
-					Target.OnStockUpdated();
-
-					HarvestPOIPatches.disabled = false;
-				}
+				var dStock = count - Target.Stock;
+				Target.harvestable.AddStock(dStock, false);
+				Target.OnStockUpdated();
 			}
 			catch (Exception e)
 			{
-				CFBCore.LogError($"HOW?!?!?! Target: {Target == null} this: {name} target name: {Target.name} - {e}");
+				CFBCore.LogError($"Couldn't apply stock to {Target.name}: {e}");
+			}
+			finally
+			{
+				HarvestPOIPatches.disabled = false;
 			}
 		}
 
-		[Command]
+		/// <summary>
+		/// Only the host rolls special spots, and as the server it sets the value directly: as a Command this needed
+		/// authority and the host's rolls never reached the synced value.
+		/// </summary>
+		[Server]
 		public void SetIsCurrentlySpecial(bool isCurrentlySpecial)
 		{
 			_isCurrentlySpecial = isCurrentlySpecial;
@@ -52,28 +59,36 @@ namespace CosmicHorrorFishingBuddies.HarvestPOISync
 		}
 
 		[ClientRpc]
-		private void RpcSetSpecial(bool isSpecial)
+		private void RpcSetSpecial(bool isSpecial) => ApplySpecial(isSpecial);
+
+		private void ApplySpecial(bool isSpecial)
 		{
+			if (Target == null) return;
+
 			try
 			{
 				HarvestPOIPatches.disabled = true;
 
 				Target.SetIsCurrentlySpecial(isSpecial);
-
-				HarvestPOIPatches.disabled = false;
 			}
 			catch (Exception e)
 			{
 				CFBCore.LogError(e);
 			}
+			finally
+			{
+				HarvestPOIPatches.disabled = false;
+			}
 		}
 
 		protected override void OnSetTarget()
 		{
+			// A joining client applies the synced state directly: calling the ClientRpc methods from a client
+			// never runs their bodies, so it kept its own stock and special spots until the next change
 			if (!NetworkClient.activeHost)
 			{
-				RpcSetStockCount(_stockCount);
-				RpcSetSpecial(_isCurrentlySpecial);
+				ApplyStockCount(_stockCount);
+				ApplySpecial(_isCurrentlySpecial);
 			}
 			else
 			{
