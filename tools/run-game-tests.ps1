@@ -77,7 +77,8 @@ try {
 
 	function Read-Report($role) {
 		$path = Join-Path $resultsDir "$role.json"
-		if (Test-Path $path) { Get-Content -Raw $path | ConvertFrom-Json } else { $null }
+		# The game replaces this file while we poll; a failed read just means not ready yet
+		try { Get-Content -Raw -ErrorAction Stop $path | ConvertFrom-Json } catch { $null }
 	}
 	while ((Get-Date) -lt $deadline) {
 		$reports = 'Host', 'Client' | ForEach-Object { Read-Report $_ }
