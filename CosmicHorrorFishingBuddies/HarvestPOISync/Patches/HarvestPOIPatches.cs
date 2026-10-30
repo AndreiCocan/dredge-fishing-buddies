@@ -54,6 +54,8 @@ namespace CosmicHorrorFishingBuddies.HarvestPOISync.Patches
 		[HarmonyPatch(typeof(HarvestPOI), nameof(HarvestPOI.Update))]
 		[HarmonyPatch(typeof(HarvestPOI), nameof(HarvestPOI.OnDayNightChanged))]
 		[HarmonyPatch(typeof(HarvestPOI), nameof(HarvestPOI.SetIsCurrentlySpecial))]
-		public static bool DisableOnClient() => disabled || NetworkClient.activeHost;
+		// Only a connected client defers to the host. Spots start before the game hosts or joins, and blocking
+		// OnDayNightChanged then left every spot with no particles, so in single player too
+		public static bool DisableOnClient() => disabled || !NetworkClient.active || NetworkClient.activeHost;
 	}
 }
