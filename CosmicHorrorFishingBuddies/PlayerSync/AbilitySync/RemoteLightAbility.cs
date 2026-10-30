@@ -11,12 +11,9 @@ namespace CosmicHorrorFishingBuddies.PlayerSync.AbilitySync
 	{
 		public override Type AbilityType => typeof(LightAbility);
 
-		private LightFlickerEffect _lightFlickerEffect;
-
 		public override void Start()
 		{
 			_networkPlayer.remotePlayerBoatGraphics.RefreshBoatModel.AddListener(RefreshLights);
-			_lightFlickerEffect = GetComponentInChildren<LightFlickerEffect>();
 			base.Start();
 		}
 
@@ -35,14 +32,19 @@ namespace CosmicHorrorFishingBuddies.PlayerSync.AbilitySync
 		public void FlickerLights() => ClientRpcFlickerLights();
 
 
-		[ClientRpc]
+		// The flickering player's own game already ran the event
+		[ClientRpc(includeOwner = false)]
 		private void ClientRpcFlickerLights()
 		{
 			try
 			{
 				var flickerLightsWorldEvent = EventHelper.GetWorldEvent<FlickerLightsWorldEvent>();
 				_networkPlayer.RemotePlayOneShot(AudioEnum.LIGHT_FLICKER, flickerLightsWorldEvent.flickerVolume, 1f);
-				_lightFlickerEffect.BeginFlicker(flickerLightsWorldEvent.flickerCurve, flickerLightsWorldEvent.worldEventData.durationSec, false);
+
+				// The remote boat swaps models as upgrades sync, so take the effect from the current one
+				var boat = _networkPlayer.remotePlayerBoatGraphics.CurrentBoatModelProxy;
+				if (boat == null) return;
+				boat.LightFlickerEffect.BeginFlicker(flickerLightsWorldEvent.flickerCurve, flickerLightsWorldEvent.worldEventData.durationSec, false);
 			}
 			catch (Exception e)
 			{
