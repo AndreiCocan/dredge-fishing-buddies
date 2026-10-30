@@ -9,7 +9,7 @@ namespace CosmicHorrorFishingBuddies.PlayerSync.Patches
 		[HarmonyPatch(nameof(SteeringAnimator.Update))]
 		public static void SteeringAnimatorPatch_Update(SteeringAnimator __instance)
 		{
-			NetworkPlayer.LocalPlayer.remoteSteeringAnimator.SetSteeringParameters(__instance.moveValX, __instance.moveValY);
+			if (NetworkPlayer.LocalPlayer != null) NetworkPlayer.LocalPlayer.remoteSteeringAnimator.UpdateSteering(__instance.moveValX, __instance.moveValY);
 		}
 	}
 }

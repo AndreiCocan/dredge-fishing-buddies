@@ -18,6 +18,23 @@ namespace CosmicHorrorFishingBuddies.PlayerSync
 
 		private NetworkPlayer _player;
 
+		private Vector2 _sentSteering = new(float.NaN, float.NaN);
+		private float _nextSteeringSend;
+
+		/// <summary>
+		/// Called every frame by the owner; sends only changes, at most 20 times a second, since a command per frame
+		/// per client floods the host. A change skipped for the rate limit goes out on a later frame.
+		/// </summary>
+		public void UpdateSteering(float moveValX, float moveValY)
+		{
+			var steering = new Vector2(moveValX, moveValY);
+			if (steering == _sentSteering || Time.unscaledTime < _nextSteeringSend) return;
+
+			_sentSteering = steering;
+			_nextSteeringSend = Time.unscaledTime + 0.05f;
+			SetSteeringParameters(moveValX, moveValY);
+		}
+
 		[Command]
 		public void SetSteeringParameters(float moveValX, float moveValY) => RpcSetSteeringParameters(moveValX, moveValY);
 

@@ -39,6 +39,18 @@ namespace CosmicHorrorFishingBuddies.PlayerSync
 
 		public TimePassageMode TimeMode => _timeMode;
 
+		private TimePassageMode? _sentTimeMode;
+
+		/// <summary>
+		/// Called every frame by the owner; sends only changes, since a command per frame per client floods the host.
+		/// </summary>
+		public void UpdateTimeMode(TimePassageMode mode)
+		{
+			if (_sentTimeMode == mode) return;
+			_sentTimeMode = mode;
+			SetTimeMode(mode);
+		}
+
 		[Command]
 		public void SetIsDocked(bool isDocked)
 		{
@@ -79,7 +91,7 @@ namespace CosmicHorrorFishingBuddies.PlayerSync
 				LocalPlayer = this;
 
 				SetIsDocked(GameManager.Instance.Player.IsDocked);
-				SetTimeMode(GameManager.Instance.Time.CurrentTimePassageMode);
+				UpdateTimeMode(GameManager.Instance.Time.CurrentTimePassageMode);
 			}
 
 			PlayerManager.Players.Add(netIdentity.netId, this);

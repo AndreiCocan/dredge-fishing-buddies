@@ -19,8 +19,26 @@ namespace CosmicHorrorFishingBuddies.PlayerSync
 		[SyncVar]
 		private float pitch;
 
-		[Command]
+		private Vector2 _sentSound = new(float.NaN, float.NaN);
+		private float _nextSoundSend;
+
+		/// <summary>
+		/// Called every frame by the owner; sends only audible changes, at most 10 times a second, since a command per
+		/// frame per client floods the host.
+		/// </summary>
 		public void UpdateEngineSound(float v, float p)
+		{
+			var sound = new Vector2(v, p);
+			if (!float.IsNaN(_sentSound.x) && (sound - _sentSound).sqrMagnitude < 0.0001f) return;
+			if (Time.unscaledTime < _nextSoundSend) return;
+
+			_sentSound = sound;
+			_nextSoundSend = Time.unscaledTime + 0.1f;
+			SetEngineSound(v, p);
+		}
+
+		[Command]
+		private void SetEngineSound(float v, float p)
 		{
 			volume = v;
 			pitch = p;
