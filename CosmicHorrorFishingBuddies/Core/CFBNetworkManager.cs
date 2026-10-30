@@ -113,6 +113,7 @@ namespace CosmicHorrorFishingBuddies.Core
 				GlobalSyncPrefab.AddComponent<CFBSpawnManager>();
 				GlobalSyncPrefab.AddComponent<WorldEventSyncManager>();
 				GlobalSyncPrefab.AddComponent<WeatherSyncManager>();
+				GlobalSyncPrefab.AddComponent<BanishMachineSync>();
 				spawnPrefabs.Add(GlobalSyncPrefab);
 
 				// 3 - IndexedHarvestPOI
