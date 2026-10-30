@@ -53,11 +53,11 @@ namespace CosmicHorrorFishingBuddies.UI
 
 				_connectionTitle = UIHelper.AddLabel(options.transform, "Multiplayer", TextAlignmentOptions.Center).GetComponent<TextMeshProUGUI>();
 
-				var dropDown = UIHelper.AddDropDown(options.transform, "Server Type", "Pick EOS", new (string, Action)[]
+				var dropDown = UIHelper.AddDropDown(options.transform, "Connect with", "A connection code needs no Epic Games account", new (string, Action)[]
 				{
-						("EOS", () => OnSelectTransportOption(TransportType.EPIC)),
+						("Connection code", () => OnSelectTransportOption(TransportType.EPIC)),
 						//("Steam", () => OnSelectOption(CFBNetworkManager.TransportType.STEAM)),
-						("IP Address", () => OnSelectTransportOption(TransportType.KCP))
+						("IP address", () => OnSelectTransportOption(TransportType.KCP))
 				});
 				_transportType = TransportType.EPIC;
 
@@ -143,7 +143,7 @@ namespace CosmicHorrorFishingBuddies.UI
 				{
 					if (string.IsNullOrEmpty(EOSSDKComponent.LocalUserProductIdString))
 					{
-						_connectionInfo.text = $"EOS isn't working (unsupported on Epic Games)\nUse IP address instead";
+						_connectionInfo.text = $"Connection codes don't work in the Epic Games version\nUse IP address instead";
 					}
 					else
 					{
