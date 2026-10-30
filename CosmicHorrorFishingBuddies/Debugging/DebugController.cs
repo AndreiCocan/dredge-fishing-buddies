@@ -49,11 +49,16 @@ internal class DebugController : MonoBehaviour
 		if (QuickLoad)
 		{
 			CFBCore.LogInfo("QUICK LOAD ENABLED!");
-			// Would load directly on startup but wasn't working
-			// Wonder if it's intro skipper's fault
-			Delay.RunWhen(() => SceneManager.GetActiveScene().name == Scenes.Title, DoQuickLoad);
-
 			CFBSceneManager.GameSceneLoaded += OnGameSceneLoaded;
+		}
+	}
+
+	public void Start()
+	{
+		// Not in Awake: CFBNetworkManager.Awake deactivates this GameObject, which kills coroutines started before it
+		if (QuickLoad)
+		{
+			Delay.RunWhen(() => SceneManager.GetActiveScene().name == Scenes.Title, DoQuickLoad);
 		}
 	}
 
