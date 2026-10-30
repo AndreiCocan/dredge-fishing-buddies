@@ -6,6 +6,7 @@ using CosmicHorrorFishingBuddies.PlayerSync.AbilitySync;
 using CosmicHorrorFishingBuddies.TimeSync;
 using CosmicHorrorFishingBuddies.Util;
 using CosmicHorrorFishingBuddies.WorldEventSync;
+using CosmicHorrorFishingBuddies.WeatherSync;
 using EpicTransport;
 using kcp2k;
 using Mirror;
@@ -111,6 +112,7 @@ namespace CosmicHorrorFishingBuddies.Core
 				GlobalSyncPrefab.AddComponent<TimeSyncManager>();
 				GlobalSyncPrefab.AddComponent<CFBSpawnManager>();
 				GlobalSyncPrefab.AddComponent<WorldEventSyncManager>();
+				GlobalSyncPrefab.AddComponent<WeatherSyncManager>();
 				spawnPrefabs.Add(GlobalSyncPrefab);
 
 				// 3 - IndexedHarvestPOI
