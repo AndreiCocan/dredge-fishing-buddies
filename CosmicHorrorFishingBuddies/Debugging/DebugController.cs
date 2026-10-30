@@ -24,6 +24,9 @@ internal class DebugController : MonoBehaviour
 	private bool _hasQuickLoaded = false;
 
 	[JsonProperty]
+	public int QuickLoadSlot = 0;
+
+	[JsonProperty]
 	public int Timeout = 25;
 
 	public void Awake()
@@ -77,9 +80,9 @@ internal class DebugController : MonoBehaviour
 					{
 						CFBCore.LogInfo("QuickStart enabled, hosting game");
 
-						// Start hosting on first save slot
+						// Start hosting on the configured save slot
 						CFBNetworkManager.Instance.SetConnection(true, "localhost", TransportType.KCP);
-						GameManager.Instance.SettingsSaveData.lastSaveSlot = 0;
+						GameManager.Instance.SettingsSaveData.lastSaveSlot = QuickLoadSlot;
 						GameManager.Instance.Loader.LoadGameFromTitle();
 					}
 					else
@@ -88,7 +91,7 @@ internal class DebugController : MonoBehaviour
 
 						// Join existing game
 						CFBNetworkManager.Instance.SetConnection(false, "localhost", TransportType.KCP);
-						GameManager.Instance.SettingsSaveData.lastSaveSlot = 0;
+						GameManager.Instance.SettingsSaveData.lastSaveSlot = QuickLoadSlot;
 						GameManager.Instance.Loader.LoadGameFromTitle();
 					}
 				}
