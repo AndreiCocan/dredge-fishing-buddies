@@ -49,6 +49,8 @@ Copy-Item -Recurse $savesDir (Join-Path $saveBackup 'saves')
 Get-ChildItem $dataDir -Filter 'dredge-settings.bin*' | Copy-Item -Destination $saveBackup
 $optionsPath = Join-Path $modDir 'debug_options.json'
 $originalOptions = if (Test-Path $optionsPath) { Get-Content -Raw $optionsPath } else { $null }
+$winchConfigPath = Join-Path $GameDir 'WinchConfig.json'
+$originalWinchConfig = Get-Content -Raw $winchConfigPath
 
 $processes = @()
 $started = Get-Date
@@ -75,7 +77,17 @@ try {
 	foreach ($role in $roles) {
 		Write-Host "Starting $role..."
 		$env:CFB_TEST_ROLE = $role
+		# Winch names logs by the minute, so games started in the same minute fought over one file and one crashed.
+		# Winch reads its config once at startup, so each game gets its own log folder.
+		$logFolder = "Logs\test-$role"
+		Remove-Item -Recurse -Force (Join-Path $GameDir $logFolder) -ErrorAction SilentlyContinue
+		New-Item -ItemType Directory -Force (Join-Path $GameDir $logFolder) | Out-Null
+		$winchConfig = $originalWinchConfig | ConvertFrom-Json
+		$winchConfig.LogsFolder = $logFolder
+		$winchConfig | ConvertTo-Json | Set-Content -Path $winchConfigPath -Encoding UTF8
 		$processes += Start-Process (Join-Path $GameDir 'DREDGE.exe') $gameArgs -WorkingDirectory $GameDir -PassThru
+		# Wait until the game has read the config before pointing it at the next game's folder
+		Wait-For { Get-ChildItem (Join-Path $GameDir $logFolder) -Filter 'Winch-*.log' } "$role to start logging"
 		Wait-For { Test-Path (Join-Path $resultsDir "$role.ready.txt") } "$role to load in and connect"
 	}
 	Remove-Item Env:CFB_TEST_ROLE, Env:CFB_TEST_PLAYERS
@@ -101,10 +113,13 @@ finally {
 	Copy-Item -Force (Join-Path $saveBackup 'saves\*') $savesDir
 	Get-ChildItem $saveBackup -Filter 'dredge-settings.bin*' | Copy-Item -Force -Destination $dataDir
 	if ($null -ne $originalOptions) { Set-Content -Path $optionsPath -Value $originalOptions -Encoding UTF8 -NoNewline } else { Remove-Item -Force $optionsPath }
+	Set-Content -Path $winchConfigPath -Value $originalWinchConfig -Encoding UTF8 -NoNewline
 
 	if (Test-Path $resultsDir) { Copy-Item -Recurse $resultsDir (Join-Path $runDir 'results') }
-	Get-ChildItem (Join-Path $GameDir 'Logs') -Filter 'Winch-*.log' | Where-Object LastWriteTime -ge $started |
-		Copy-Item -Destination $runDir
+	foreach ($role in $roles) {
+		Get-ChildItem (Join-Path $GameDir "Logs\test-$role") -Filter 'Winch-*.log' -ErrorAction SilentlyContinue |
+			ForEach-Object { Copy-Item $_.FullName (Join-Path $runDir "$role.log") }
+	}
 	Write-Host "Saves restored. Run artifacts: $runDir"
 }
 
