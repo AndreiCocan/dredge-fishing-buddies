@@ -10,7 +10,6 @@
 		public float durability;
 		public float timeUntilNextCatchRoll;
 		public float lastUpdate;
-		public SerializableGrid grid;
 		private bool hadDurabilityRemaining;
 
 		public SerializedCrabPotPOIDataWrapper() { }
@@ -24,7 +23,6 @@
 			durability = data.durability;
 			timeUntilNextCatchRoll = data.timeUntilNextCatchRoll;
 			lastUpdate = data.lastUpdate;
-			grid = data.grid;
 			hadDurabilityRemaining = data.hadDurabilityRemaining;
 		}
 
@@ -37,9 +35,6 @@
 			var crabPot = new SerializedCrabPotPOIData(item, x, z);
 
 			crabPot.timeUntilNextCatchRoll = timeUntilNextCatchRoll;
-
-			crabPot.grid = grid;
-			crabPot.grid.Init(crabPot.deployableItemData.GridConfig);
 
 			crabPot.hadDurabilityRemaining = hadDurabilityRemaining;
 
