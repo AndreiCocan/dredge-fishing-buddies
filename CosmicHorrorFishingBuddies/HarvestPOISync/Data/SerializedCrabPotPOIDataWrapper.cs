@@ -36,7 +36,6 @@
 
 			var crabPot = new SerializedCrabPotPOIData(item, x, z);
 
-			crabPot.deployableItemData.timeBetweenCatchRolls = timeUntilNextCatchRoll;
 			crabPot.timeUntilNextCatchRoll = timeUntilNextCatchRoll;
 
 			crabPot.grid = grid;
