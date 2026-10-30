@@ -21,8 +21,11 @@ internal static class Scenarios
 	{
 		TestScenario.Both("every Harmony patch is applied to this game version", AllPatchesApplied),
 		TestScenario.Both("both players see each other", BothPlayersPresent),
-		TestScenario.Both("stationary boats are drawn where they are when a player joins", StationaryBoatsVisibleOnJoin),		TestScenario.Both("time of day matches the host", TimeOfDayMatches),
+		TestScenario.Both("stationary boats are drawn where they are when a player joins", StationaryBoatsVisibleOnJoin),
+		TestScenario.Both("time of day matches the host", TimeOfDayMatches),
 		TestScenario.Both("each player sees the other's saved crab pots", SavedCrabPotsVisibleToOtherPlayer),
+		TestScenario.Both("crab pot contents match the owner's", CrabPotContentsMatchOwner),
+		new("fish added to a pot reach the other player, fish taken out leave the owner's pot", AddFishToOwnPot, TakeFishFromRemotePot),
 		TestScenario.Both("the mod logged no errors", NoModErrors),
 	};
 
@@ -58,28 +61,21 @@ internal static class Scenarios
 	private static Vector2 XZ(Vector3 v) => new(v.x, v.z);
 
 	/// <summary>
-	/// Both sides keep publishing their live boat position and compare the other's latest report against
-	/// where they draw the remote boat, until both agree or time runs out.
+	/// Both sides keep publishing their live state and checking the other's latest report against what they see of
+	/// it, until both agree or time runs out. Live state can change mid-check, so a single exchange is not enough.
 	/// </summary>
-	private static IEnumerator RemoteBoatMatchesReportedPosition(TestContext ctx, string key)
+	private static IEnumerator KeepComparing(TestContext ctx, string key, Func<string> mine, Func<string, bool> matches, Func<string, string> mismatch)
 	{
-		var reported = new Vector2(float.NaN, float.NaN);
-		float Distance() => RemotePlayer() is { } remote ? Vector2.Distance(XZ(remote.transform.position), reported) : float.PositiveInfinity;
-
+		string reported = null;
 		var matched = false;
 		var otherMatched = false;
 		var deadline = Time.realtimeSinceStartup + 15;
 		while (!(matched && otherMatched))
 		{
-			var local = XZ(GameManager.Instance.Player.transform.position);
-			ctx.Share(key, FormattableString.Invariant($"{local.x},{local.y}"));
+			ctx.Share(key, mine());
+			if (ctx.TryRead(key, out var s)) reported = s;
 
-			if (ctx.TryRead(key, out var s))
-			{
-				var parts = s.Split(',');
-				reported = new Vector2(float.Parse(parts[0], CultureInfo.InvariantCulture), float.Parse(parts[1], CultureInfo.InvariantCulture));
-			}
-			if (!matched && Distance() < 2f)
+			if (!matched && reported != null && matches(reported))
 			{
 				matched = true;
 				ctx.Share(key + ".matched", "");
@@ -87,14 +83,32 @@ internal static class Scenarios
 			otherMatched = ctx.TryRead(key + ".matched", out _);
 
 			Expect.That(Time.realtimeSinceStartup < deadline,
-				matched
-					? $"{ctx.OtherRole} never saw this boat where it is"
-					: $"remote boat drawn {Distance():F1}m from where {ctx.OtherRole} reports it ({reported:F1})");
+				matched ? $"{ctx.OtherRole} never saw this player's state" : mismatch(reported));
 			yield return new WaitForSeconds(0.25f);
 		}
 	}
 
-	private static IEnumerator StationaryBoatsVisibleOnJoin(TestContext ctx) => RemoteBoatMatchesReportedPosition(ctx, "position.stationary");
+	private static Vector2 ParseXZ(string s)
+	{
+		var parts = s.Split(',');
+		return new Vector2(float.Parse(parts[0], CultureInfo.InvariantCulture), float.Parse(parts[1], CultureInfo.InvariantCulture));
+	}
+
+	private static IEnumerator StationaryBoatsVisibleOnJoin(TestContext ctx)
+	{
+		float Distance(string reported) => RemotePlayer() is { } remote ? Vector2.Distance(XZ(remote.transform.position), ParseXZ(reported)) : float.PositiveInfinity;
+
+		return KeepComparing(ctx, "position.stationary",
+			() =>
+			{
+				var local = XZ(GameManager.Instance.Player.transform.position);
+				return FormattableString.Invariant($"{local.x},{local.y}");
+			},
+			reported => Distance(reported) < 2f,
+			reported => reported == null
+				? $"{ctx.OtherRole} never reported its position"
+				: $"remote boat drawn {Distance(reported):F1}m from where {ctx.OtherRole} reports it ({reported})");
+	}
 
 	private static int CrabPotsOwnedBy(Func<uint, bool> owner) =>
 		NetworkHarvestPOIManager.Instance.CrabPots.Count(pot => pot.Target != null && owner(pot.OwnerID));
@@ -114,6 +128,77 @@ internal static class Scenarios
 		yield return ctx.Receive("pots", s => theirs = int.Parse(s));
 		yield return Expect.Until(() => CrabPotsOwnedBy(id => id != self) == theirs, 20,
 			$"{theirs} crab pots from {ctx.OtherRole} (see {CrabPotsOwnedBy(id => id != self)})");
+	}
+
+	private static SerializedCrabPotPOIData PotData(NetworkPlacedHarvestPOI pot) => (SerializedCrabPotPOIData)pot.Target.Harvestable;
+
+	private static IEnumerable<NetworkPlacedHarvestPOI> PotsOwnedBy(Func<uint, bool> owner) =>
+		NetworkHarvestPOIManager.Instance.CrabPots.Where(pot => pot.Target != null && owner(pot.OwnerID));
+
+	/// <summary>
+	/// One line per pot, keyed by where it sits, listing the item ids inside it.
+	/// </summary>
+	private static string PotContents(Func<uint, bool> owner) => string.Join("\n", PotsOwnedBy(owner)
+		.Select(PotData)
+		.Select(d => FormattableString.Invariant($"{d.x:F1},{d.z:F1}: {string.Join(",", d.grid.spatialItems.Select(i => i.id).OrderBy(id => id))}"))
+		.OrderBy(line => line));
+
+	private static IEnumerator CrabPotContentsMatchOwner(TestContext ctx)
+	{
+		var self = PlayerManager.LocalNetID;
+		return KeepComparing(ctx, "pot.contents",
+			() => PotContents(id => id == self),
+			reported => PotContents(id => id != self) == reported,
+			reported => $"{ctx.OtherRole}'s pots:\n{reported}\nseen here as:\n{PotContents(id => id != self)}");
+	}
+
+	private static NetworkPlacedHarvestPOI PotAt(Func<uint, bool> owner, Vector2 position) =>
+		PotsOwnedBy(owner).FirstOrDefault(pot => Vector2.Distance(new Vector2(PotData(pot).x, PotData(pot).z), position) < 0.1f);
+
+	private static IEnumerator AddFishToOwnPot(TestContext ctx)
+	{
+		var self = PlayerManager.LocalNetID;
+		var pot = PotsOwnedBy(id => id == self).FirstOrDefault();
+		Expect.That(pot != null, "host has no crab pot on the network");
+		var data = PotData(pot);
+
+		var fish = GameManager.Instance.ItemManager.GetSpatialItemDataBySubtype(ItemSubtype.FISH)
+			.Select(item => GameManager.Instance.ItemManager.AddItemById(item.id, data.grid))
+			.FirstOrDefault(added => added != null);
+		Expect.That(fish != null, "no fish fits in the host's crab pot");
+		pot.Target.OnStockUpdated();
+
+		ctx.Share("pot", FormattableString.Invariant($"{data.x},{data.z}"));
+		ctx.Share("fish", fish.id);
+
+		yield return ctx.Receive("taken", _ => { });
+		yield return Expect.Until(() => data.grid.spatialItems.Count == 0, 10,
+			$"the host's pot to be emptied by the client (holds {data.grid.spatialItems.Count} items)");
+		ctx.Share("emptied", "");
+	}
+
+	private static IEnumerator TakeFishFromRemotePot(TestContext ctx)
+	{
+		var self = PlayerManager.LocalNetID;
+		var position = Vector2.zero;
+		var fishID = "";
+		yield return ctx.Receive("pot", s => position = ParseXZ(s));
+		yield return ctx.Receive("fish", s => fishID = s);
+
+		var pot = PotAt(id => id != self, position);
+		Expect.That(pot != null, $"no copy of the host's pot at {position}");
+		var data = PotData(pot);
+		yield return Expect.Until(() => data.grid.spatialItems.Any(i => i.id == fishID), 10,
+			$"the host's {fishID} to appear in the pot (holds {string.Join(",", data.grid.spatialItems.Select(i => i.id))})");
+
+		foreach (var item in data.grid.spatialItems.ToList())
+		{
+			data.grid.RemoveObjectFromGridData(item, notify: true);
+		}
+		pot.Target.OnStockUpdated();
+		ctx.Share("taken", "");
+
+		yield return ctx.Receive("emptied", _ => { }, 15);
 	}
 
 	private static IEnumerator NoModErrors(TestContext ctx)
