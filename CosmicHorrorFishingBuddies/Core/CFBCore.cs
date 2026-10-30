@@ -41,6 +41,9 @@ namespace CosmicHorrorFishingBuddies.Core
 
 				LogInfo($"Cosmic Fishing Buddies is loaded!");
 
+				// Unity freezes unfocused windows by default, which stalls a host whose player alt-tabs
+				Application.runInBackground = true;
+
 				InitAssemblies();
 
 				new Harmony(nameof(CFBCore)).PatchAll();
