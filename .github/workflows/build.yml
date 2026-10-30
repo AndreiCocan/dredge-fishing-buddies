@@ -1,0 +1,23 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build mod
+        run: dotnet build -c Release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CosmicHorrorFishingBuddies
+          path: CosmicHorrorFishingBuddies/bin/Release
