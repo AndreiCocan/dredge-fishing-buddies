@@ -14,14 +14,14 @@ using UnityEngine;
 namespace CosmicHorrorFishingBuddies.Testing;
 
 /// <summary>
-/// Every synced feature gets a scenario here. Both instances run them in this order.
+/// Every synced feature gets a scenario here. All instances run them in this order.
 /// </summary>
 internal static class Scenarios
 {
 	public static readonly TestScenario[] All =
 	{
-		TestScenario.Both("every Harmony patch is applied to this game version", AllPatchesApplied),
-		TestScenario.Both("both players see each other", BothPlayersPresent),
+		TestScenario.Everyone("every Harmony patch is applied to this game version", AllPatchesApplied),
+		TestScenario.Everyone("all players see each other", AllPlayersPresent),
 		TestScenario.Both("stationary boats are drawn where they are when a player joins", StationaryBoatsVisibleOnJoin),
 		TestScenario.Both("time of day matches the host", TimeOfDayMatches),
 		TestScenario.Both("each player sees the other's saved crab pots", SavedCrabPotsVisibleToOtherPlayer),
@@ -37,7 +37,8 @@ internal static class Scenarios
 			ctx => WatchSpotStock(ctx, "spot.restocking", expectChange: true), ctx => HarvestSpot(ctx, "spot.restocking", restocks: true)),
 		new("dredging a one-off spot (quest relics) leaves it for the other player",
 			ctx => WatchSpotStock(ctx, "spot.oneoff", expectChange: false), ctx => HarvestSpot(ctx, "spot.oneoff", restocks: false)),
-		TestScenario.Both("the mod logged no errors", NoModErrors),
+		TestScenario.Everyone("network traffic and frame times stay steady", TrafficAndFrameTimesSteady, 30),
+		TestScenario.Everyone("the mod logged no errors", NoModErrors),
 	};
 
 	private static readonly Type[] PatchMethodAttributes =
@@ -62,12 +63,71 @@ internal static class Scenarios
 		yield break;
 	}
 
-	private static IEnumerator BothPlayersPresent(TestContext ctx)
+	private static IEnumerator AllPlayersPresent(TestContext ctx)
 	{
-		yield return Expect.Until(() => PlayerManager.Players.Count == 2, 30, $"2 players (have {PlayerManager.Players.Count})");
+		yield return Expect.Until(() => PlayerManager.Players.Count == ctx.PlayerCount, 30,
+			$"{ctx.PlayerCount} players (have {PlayerManager.Players.Count})");
+		ctx.Share("netid", PlayerManager.LocalNetID);
 	}
 
-	private static NetworkPlayer RemotePlayer() => PlayerManager.Players.Values.FirstOrDefault(p => !p.isOwned);
+	/// <summary>
+	/// The network id of the player this one is paired with, shared in "all players see each other". With more than two
+	/// players, "not mine" would also count the extra clients.
+	/// </summary>
+	private static uint PartnerNetID(TestContext ctx) => ctx.TryRead("netid", out var id) ? uint.Parse(id) : uint.MaxValue;
+
+	private static IEnumerable<NetworkPlayer> RemotePlayers() => PlayerManager.Players.Values.Where(p => !p.isOwned);
+
+	/// <summary>
+	/// Inbound Mirror messages per kind, naming commands and RPCs by method so a flood points at its source.
+	/// </summary>
+	private static string MessageKind(Mirror.NetworkMessage message)
+	{
+		static string RemoteCall(ushort hash) => Mirror.RemoteCalls.RemoteProcedureCalls.GetDelegate(hash)?.Method.Name ?? $"#{hash}";
+
+		return message switch
+		{
+			Mirror.RpcMessage rpc => "rpc " + RemoteCall(rpc.functionHash),
+			Mirror.CommandMessage command => "cmd " + RemoteCall(command.functionHash),
+			_ => message.GetType().Name,
+		};
+	}
+
+	private static IEnumerator TrafficAndFrameTimesSteady(TestContext ctx)
+	{
+		const float seconds = 10f;
+		var counts = new Dictionary<string, int>();
+		void OnMessage(Mirror.NetworkDiagnostics.MessageInfo info)
+		{
+			var kind = MessageKind(info.message);
+			counts[kind] = (counts.TryGetValue(kind, out var count) ? count : 0) + Math.Max(1, info.count);
+		}
+
+		var frames = 0;
+		var hitches = 0;
+		Mirror.NetworkDiagnostics.InMessageEvent += OnMessage;
+		try
+		{
+			var end = Time.realtimeSinceStartup + seconds;
+			while (Time.realtimeSinceStartup < end)
+			{
+				frames++;
+				if (Time.unscaledDeltaTime > 0.1f) hitches++;
+				yield return null;
+			}
+		}
+		finally
+		{
+			Mirror.NetworkDiagnostics.InMessageEvent -= OnMessage;
+		}
+
+		var perSecond = counts.Values.Sum() / seconds;
+		var summary = FormattableString.Invariant($"{ctx.PlayerCount} players: {frames / seconds:F0} fps, {hitches} frames over 100ms, {perSecond:F0} messages in per second")
+			+ "\n" + string.Join("\n", counts.OrderByDescending(c => c.Value).Take(8).Select(c => FormattableString.Invariant($"  {c.Value / seconds,7:F1}/s {c.Key}")));
+		ctx.Share("traffic", summary);
+
+		Expect.That(hitches <= 5 && perSecond < 500, summary);
+	}
 
 	private static Vector2 XZ(Vector3 v) => new(v.x, v.z);
 
@@ -107,7 +167,7 @@ internal static class Scenarios
 
 	private static IEnumerator StationaryBoatsVisibleOnJoin(TestContext ctx)
 	{
-		float Distance(string reported) => RemotePlayer() is { } remote ? Vector2.Distance(XZ(remote.transform.position), ParseXZ(reported)) : float.PositiveInfinity;
+		float Distance(string reported) => RemotePlayers().Select(remote => Vector2.Distance(XZ(remote.transform.position), ParseXZ(reported))).DefaultIfEmpty(float.PositiveInfinity).Min();
 
 		return KeepComparing(ctx, "position.stationary",
 			() =>
@@ -137,8 +197,8 @@ internal static class Scenarios
 
 		var theirs = 0;
 		yield return ctx.Receive("pots", s => theirs = int.Parse(s));
-		yield return Expect.Until(() => CrabPotsOwnedBy(id => id != self) == theirs, 20,
-			$"{theirs} crab pots from {ctx.OtherRole} (see {CrabPotsOwnedBy(id => id != self)})");
+		yield return Expect.Until(() => CrabPotsOwnedBy(id => id == PartnerNetID(ctx)) == theirs, 20,
+			$"{theirs} crab pots from {ctx.OtherRole} (see {CrabPotsOwnedBy(id => id == PartnerNetID(ctx))})");
 	}
 
 	private static SerializedCrabPotPOIData PotData(NetworkPlacedHarvestPOI pot) => (SerializedCrabPotPOIData)pot.Target.Harvestable;
@@ -159,8 +219,8 @@ internal static class Scenarios
 		var self = PlayerManager.LocalNetID;
 		return KeepComparing(ctx, "pot.contents",
 			() => PotContents(id => id == self),
-			reported => PotContents(id => id != self) == reported,
-			reported => $"{ctx.OtherRole}'s pots:\n{reported}\nseen here as:\n{PotContents(id => id != self)}");
+			reported => PotContents(id => id == PartnerNetID(ctx)) == reported,
+			reported => $"{ctx.OtherRole}'s pots:\n{reported}\nseen here as:\n{PotContents(id => id == PartnerNetID(ctx))}");
 	}
 
 	private static NetworkPlacedHarvestPOI PotAt(Func<uint, bool> owner, Vector2 position) =>
@@ -190,13 +250,12 @@ internal static class Scenarios
 
 	private static IEnumerator TakeFishFromRemotePot(TestContext ctx)
 	{
-		var self = PlayerManager.LocalNetID;
 		var position = Vector2.zero;
 		var fishID = "";
 		yield return ctx.Receive("pot", s => position = ParseXZ(s));
 		yield return ctx.Receive("fish", s => fishID = s);
 
-		var pot = PotAt(id => id != self, position);
+		var pot = PotAt(id => id == PartnerNetID(ctx), position);
 		Expect.That(pot != null, $"no copy of the host's pot at {position}");
 		var data = PotData(pot);
 		yield return Expect.Until(() => data.grid.spatialItems.Any(i => i.id == fishID), 10,

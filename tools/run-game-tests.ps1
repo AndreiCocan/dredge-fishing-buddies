@@ -12,6 +12,7 @@ param(
 	[string]$GameDir = $(if ($env:DREDGE_DIR) { $env:DREDGE_DIR } else { "${env:ProgramFiles(x86)}\Steam\steamapps\common\DREDGE" }),
 	[string]$Save = "",
 	[int]$Slot = 2,
+	[int]$Clients = 1,
 	[int]$TimeoutSeconds = 480,
 	[string]$Configuration = "Debug",
 	[switch]$NoBuild
@@ -26,6 +27,7 @@ $patcherDir = Join-Path $GameDir 'Mods\xen.steamapipatcher'
 $resultsDir = Join-Path $modDir 'test-results'
 $runDir = Join-Path $repo ".test-runs\$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')"
 $gameArgs = '-screen-fullscreen 0 -screen-width 960 -screen-height 540 skipintro'
+$roles = @('Host') + (1..$Clients | ForEach-Object { "Client$_" })
 
 if (Get-Process DREDGE -ErrorAction SilentlyContinue) { throw 'Close DREDGE first: the harness picks host/client by counting game processes.' }
 if (-not (Test-Path (Join-Path $GameDir 'Winch.dll'))) { throw "Winch is not installed in $GameDir (https://github.com/DREDGE-Mods/Winch/releases)." }
@@ -68,12 +70,15 @@ try {
 		}
 	}
 
-	Write-Host 'Starting host...'
-	$processes += Start-Process (Join-Path $GameDir 'DREDGE.exe') $gameArgs -WorkingDirectory $GameDir -PassThru
-	Wait-For { Test-Path (Join-Path $resultsDir 'Host.ready.txt') } 'the host to load in and start hosting'
-
-	Write-Host 'Starting client...'
-	$processes += Start-Process (Join-Path $GameDir 'DREDGE.exe') $gameArgs -WorkingDirectory $GameDir -PassThru
+	# Each game inherits these at launch: its own role, and the roster it waits for at every barrier
+	$env:CFB_TEST_PLAYERS = $roles -join ','
+	foreach ($role in $roles) {
+		Write-Host "Starting $role..."
+		$env:CFB_TEST_ROLE = $role
+		$processes += Start-Process (Join-Path $GameDir 'DREDGE.exe') $gameArgs -WorkingDirectory $GameDir -PassThru
+		Wait-For { Test-Path (Join-Path $resultsDir "$role.ready.txt") } "$role to load in and connect"
+	}
+	Remove-Item Env:CFB_TEST_ROLE, Env:CFB_TEST_PLAYERS
 
 	function Read-Report($role) {
 		$path = Join-Path $resultsDir "$role.json"
@@ -81,9 +86,9 @@ try {
 		try { Get-Content -Raw -ErrorAction Stop $path | ConvertFrom-Json } catch { $null }
 	}
 	while ((Get-Date) -lt $deadline) {
-		$reports = 'Host', 'Client' | ForEach-Object { Read-Report $_ }
-		if (($reports | Where-Object { $_ -and $_.finished }).Count -eq 2) { break }
-		if (($processes | Where-Object HasExited).Count -eq 2) { break }
+		$reports = $roles | ForEach-Object { Read-Report $_ }
+		if (($reports | Where-Object { $_ -and $_.finished }).Count -eq $roles.Count) { break }
+		if (($processes | Where-Object HasExited).Count -eq $roles.Count) { break }
 		Start-Sleep -Seconds 2
 	}
 }
@@ -104,16 +109,19 @@ finally {
 }
 
 $failed = $false
-foreach ($role in 'Host', 'Client') {
+foreach ($role in $roles) {
 	$report = Read-Report $role
 	if (-not $report) { Write-Host "[$role] no report written" -ForegroundColor Red; $failed = $true; continue }
 	foreach ($r in $report.results) {
-		$color = if ($r.passed) { 'Green' } else { 'Red' }
-		$line = "[$role] $(if ($r.passed) { 'PASS' } else { 'FAIL' }) $($r.name) ($([math]::Round($r.seconds, 1))s)"
+		$status = if ($r.skipped) { 'SKIP' } elseif ($r.passed) { 'PASS' } else { 'FAIL' }
+		$color = if ($r.skipped) { 'DarkGray' } elseif ($r.passed) { 'Green' } else { 'Red' }
+		$line = "[$role] $status $($r.name) ($([math]::Round($r.seconds, 1))s)"
 		if (-not $r.passed) { $line += "`n        $($r.error)"; $failed = $true }
 		Write-Host $line -ForegroundColor $color
 	}
 	if (-not $report.finished) { Write-Host "[$role] did not finish all scenarios" -ForegroundColor Red; $failed = $true }
+	$traffic = Join-Path $resultsDir "$role.traffic.txt"
+	if (Test-Path $traffic) { Write-Host "[$role] traffic: $(Get-Content -Raw $traffic)" -ForegroundColor DarkGray }
 }
 if ($failed) { exit 1 }
 Write-Host 'All game tests passed.' -ForegroundColor Green

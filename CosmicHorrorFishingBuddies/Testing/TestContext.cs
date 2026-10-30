@@ -1,30 +1,44 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Linq;
 
 namespace CosmicHorrorFishingBuddies.Testing;
 
 /// <summary>
-/// Both game instances run on one machine, so they coordinate through files in a shared folder
+/// All game instances run on one machine, so they coordinate through files in a shared folder
 /// rather than through the network code under test.
 /// </summary>
 internal sealed class TestContext
 {
-	public readonly TestRole Role;
-	public readonly string SharedFolder;
+	public const string HostName = "Host";
+	public const string ClientName = "Client1";
 
-	public TestContext(TestRole role, string sharedFolder)
+	public readonly TestRole Role;
+	public readonly string RoleName;
+	public readonly string SharedFolder;
+	private readonly string[] _players;
+
+	public TestContext(TestRole role, string roleName, string[] players, string sharedFolder)
 	{
 		Role = role;
+		RoleName = roleName;
+		_players = players;
 		SharedFolder = sharedFolder;
 	}
 
-	public TestRole OtherRole => Role == TestRole.Host ? TestRole.Client : TestRole.Host;
+	public int PlayerCount => _players.Length;
 
-	private string PathFor(string key, TestRole role) => Path.Combine(SharedFolder, $"{role}.{key}.txt");
+	/// <summary>
+	/// The player this one exchanges values with: the host pairs with the first client, every client with the host.
+	/// </summary>
+	public TestRole OtherRole => Role == TestRole.Host ? TestRole.Client : TestRole.Host;
+	private string OtherRoleName => Role == TestRole.Host ? ClientName : HostName;
+
+	private string PathFor(string key, string roleName) => Path.Combine(SharedFolder, $"{roleName}.{key}.txt");
 
 	public void Share(string key, object value) =>
-		WriteFile(PathFor(key, Role), Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
+		WriteFile(PathFor(key, RoleName), Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
 
 	/// <summary>
 	/// Readers (the other instance, the harness script) may hold the file open for a moment, which blocks
@@ -54,7 +68,7 @@ internal sealed class TestContext
 
 	public bool TryRead(string key, out string value)
 	{
-		var path = PathFor(key, OtherRole);
+		var path = PathFor(key, OtherRoleName);
 		try
 		{
 			value = File.ReadAllText(path);
@@ -69,14 +83,16 @@ internal sealed class TestContext
 
 	public IEnumerator Receive(string key, Action<string> onValue, float timeoutSeconds = 60)
 	{
-		var path = PathFor(key, OtherRole);
-		yield return Expect.Until(() => File.Exists(path), timeoutSeconds, $"{OtherRole} to share '{key}'");
+		var path = PathFor(key, OtherRoleName);
+		yield return Expect.Until(() => File.Exists(path), timeoutSeconds, $"{OtherRoleName} to share '{key}'");
 		onValue(File.ReadAllText(path));
 	}
 
 	public IEnumerator Barrier(string name, float timeoutSeconds = 120)
 	{
-		Share("barrier." + name, "");
-		yield return Receive("barrier." + name, _ => { }, timeoutSeconds);
+		var key = "barrier." + name;
+		Share(key, "");
+		yield return Expect.Until(() => _players.All(player => File.Exists(PathFor(key, player))), timeoutSeconds,
+			$"all of {string.Join(", ", _players)} to reach '{name}'");
 	}
 }

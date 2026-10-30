@@ -3,27 +3,42 @@ using System.Collections;
 
 namespace CosmicHorrorFishingBuddies.Testing;
 
-internal enum TestRole { Host, Client }
+/// <summary>
+/// Host and Client are the two players every scenario pairs up; Extra is any further client, which most
+/// scenarios leave out.
+/// </summary>
+internal enum TestRole { Host, Client, Extra }
 
 internal sealed class TestScenario
 {
 	public readonly string Name;
 	public readonly Func<TestContext, IEnumerator> Host;
 	public readonly Func<TestContext, IEnumerator> Client;
+	public readonly Func<TestContext, IEnumerator> Extra;
 	public readonly float TimeoutSeconds;
 
-	public TestScenario(string name, Func<TestContext, IEnumerator> host, Func<TestContext, IEnumerator> client, float timeoutSeconds = 60)
+	public TestScenario(string name, Func<TestContext, IEnumerator> host, Func<TestContext, IEnumerator> client,
+		float timeoutSeconds = 60, Func<TestContext, IEnumerator> extra = null)
 	{
 		Name = name;
 		Host = host;
 		Client = client;
+		Extra = extra;
 		TimeoutSeconds = timeoutSeconds;
 	}
 
 	public static TestScenario Both(string name, Func<TestContext, IEnumerator> body, float timeoutSeconds = 60) =>
 		new(name, body, body, timeoutSeconds);
 
-	public Func<TestContext, IEnumerator> BodyFor(TestRole role) => role == TestRole.Host ? Host : Client;
+	public static TestScenario Everyone(string name, Func<TestContext, IEnumerator> body, float timeoutSeconds = 60) =>
+		new(name, body, body, timeoutSeconds, body);
+
+	public Func<TestContext, IEnumerator> BodyFor(TestRole role) => role switch
+	{
+		TestRole.Host => Host,
+		TestRole.Client => Client,
+		_ => Extra,
+	};
 }
 
 internal sealed class TestFailure : Exception

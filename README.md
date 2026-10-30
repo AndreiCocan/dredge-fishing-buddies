@@ -65,4 +65,6 @@ The multiplayer features are tested in the real game. With DREDGE and [Winch](ht
 
 The script builds the mod, deploys it to your DREDGE `Mods` folder, starts a host and a client instance on this machine, and runs every scenario in `CosmicHorrorFishingBuddies/Testing/Scenarios.cs` in both. It prints PASS/FAIL per scenario per role and exits non-zero on any failure. Your saves and settings are backed up first and restored afterwards; the test plays on its own slot (2), seeded from your slot 0 or from `-Save <file>`. Logs and results for each run land in `.test-runs/<timestamp>/`.
 
-To cover a new feature, add a scenario to `Scenarios.All`: a host body, a client body, or one body for both. `TestContext.Share`/`Receive` pass values between the two instances.
+`-Clients 2` adds a second client for three-player sessions. Every instance runs the checks that apply to everyone; two-player checks pair the host with the first client and show as SKIP for the others.
+
+To cover a new feature, add a scenario to `Scenarios.All`: a host body, a client body, one body for both, or `Everyone` for checks every instance runs. `TestContext.Share`/`Receive` pass values between the host and the first client.

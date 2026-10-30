@@ -22,13 +22,14 @@ internal class TestRunner : MonoBehaviour
 	{
 		public string name;
 		public bool passed;
+		public bool skipped;
 		public string error;
 		public float seconds;
 	}
 
 	private sealed class Report
 	{
-		public TestRole role;
+		public string role;
 		public bool finished;
 		public List<Result> results = new();
 	}
@@ -51,12 +52,17 @@ internal class TestRunner : MonoBehaviour
 			yield return null;
 		}
 
-		var role = NetworkServer.activeHost ? TestRole.Host : TestRole.Client;
-		var context = new TestContext(role, ResultsFolder);
-		var report = new Report { role = role };
+		// tools/run-game-tests.ps1 names each instance and the whole roster through the environment it starts them with
+		var roleName = Environment.GetEnvironmentVariable("CFB_TEST_ROLE")
+			?? (NetworkServer.activeHost ? TestContext.HostName : TestContext.ClientName);
+		var players = (Environment.GetEnvironmentVariable("CFB_TEST_PLAYERS") ?? $"{TestContext.HostName},{TestContext.ClientName}").Split(',');
+		var role = NetworkServer.activeHost ? TestRole.Host : roleName == TestContext.ClientName ? TestRole.Client : TestRole.Extra;
+
+		var context = new TestContext(role, roleName, players, ResultsFolder);
+		var report = new Report { role = roleName };
 		WriteReport(report);
 		context.Share("ready", "");
-		CFBCore.LogInfo($"[TEST] runner started as {role}");
+		CFBCore.LogInfo($"[TEST] runner started as {roleName}");
 
 		for (var i = 0; i < Scenarios.All.Length; i++)
 		{
@@ -75,19 +81,20 @@ internal class TestRunner : MonoBehaviour
 			{
 				name = scenario.Name,
 				passed = error == null,
+				skipped = error == null && body == null,
 				error = error is TestFailure ? error.Message : error?.ToString(),
 				seconds = Time.realtimeSinceStartup - started,
 			};
 			report.results.Add(result);
 			WriteReport(report);
-			CFBCore.LogInfo($"[TEST] {(result.passed ? "PASS" : "FAIL")} {scenario.Name} {result.error}");
+			CFBCore.LogInfo($"[TEST] {(result.skipped ? "SKIP" : result.passed ? "PASS" : "FAIL")} {scenario.Name} {result.error}");
 		}
 
 		yield return Execute(context.Barrier("done"), 120, _ => { });
 		report.finished = true;
 		WriteReport(report);
 
-		// The client leaves first so the host never sees its server vanish mid-run
+		// Clients leave first so the host never sees its server vanish mid-run
 		if (role == TestRole.Host)
 		{
 			var leaveDeadline = Time.realtimeSinceStartup + 15;
