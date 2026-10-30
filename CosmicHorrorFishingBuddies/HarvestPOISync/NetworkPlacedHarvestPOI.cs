@@ -12,21 +12,31 @@ namespace CosmicHorrorFishingBuddies.HarvestPOISync
 	{
 		[SyncVar]
 		private uint _activeOwnerID = uint.MaxValue;
+		public uint OwnerID => _activeOwnerID;
 
-		[Command]
-		public void SetCrabPotData(SerializedCrabPotPOIDataWrapper crabPotData, uint senderID)
+		[SyncVar]
+		private SerializedCrabPotPOIDataWrapper _crabPotData;
+
+		/// <summary>
+		/// Call before spawning, so the pot travels in the spawn state and players who join later get it too.
+		/// </summary>
+		public void SetCrabPotData(SerializedCrabPotPOIDataWrapper crabPotData, uint ownerID)
 		{
-			RpcSetCrabPotData(crabPotData, senderID);
+			_crabPotData = crabPotData;
+			_activeOwnerID = ownerID;
 		}
 
-		[ClientRpc]
-		private void RpcSetCrabPotData(SerializedCrabPotPOIDataWrapper crabPotData, uint senderID)
+		public override void OnStartClient()
 		{
-			CFBCore.LogInfo($"Player {senderID} requested {NetworkPlayer.LocalPlayer.netId} to make crab pot");
-			if (NetworkPlayer.LocalPlayer.netIdentity.netId != senderID)
+			base.OnStartClient();
+
+			Delay.RunWhen(() => this == null || NetworkPlayer.LocalPlayer != null, () =>
 			{
-				InitializeCrabPotData(crabPotData);
-			}
+				if (this != null && _activeOwnerID != NetworkPlayer.LocalPlayer.netId)
+				{
+					InitializeCrabPotData(_crabPotData);
+				}
+			});
 		}
 
 		private void InitializeCrabPotData(SerializedCrabPotPOIDataWrapper crabPotData)

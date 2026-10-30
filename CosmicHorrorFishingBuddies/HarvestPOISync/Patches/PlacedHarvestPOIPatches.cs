@@ -1,4 +1,5 @@
 ﻿using CosmicHorrorFishingBuddies.Core;
+using CosmicHorrorFishingBuddies.PlayerSync;
 using HarmonyLib;
 
 namespace CosmicHorrorFishingBuddies.HarvestPOISync.Patches
@@ -9,14 +10,14 @@ namespace CosmicHorrorFishingBuddies.HarvestPOISync.Patches
 		[HarmonyPostfix]
 		[HarmonyPatch(nameof(PlacedHarvestPOI.Awake))]
 		public static void PlacedHarvestPOI_Awake(PlacedHarvestPOI __instance)
-		{			
-			// PlacedHarvestPOI has no Start method else I'd use that
-			Delay.FireOnNextUpdate(() => Start(__instance));
-		}
-
-		private static void Start(PlacedHarvestPOI instance)
 		{
-			CFBSpawnManager.Instance?.TrySpawnNetworkCrabPot(instance);
-		} 
+			// Pots loaded with the save wake up before this player has joined the network, so wait for it
+			Delay.RunWhen(
+				() => __instance == null || (CFBSpawnManager.Instance != null && NetworkPlayer.LocalPlayer != null),
+				() =>
+				{
+					if (__instance != null) CFBSpawnManager.Instance.TrySpawnNetworkCrabPot(__instance);
+				});
+		}
 	}
 }

@@ -4,6 +4,7 @@ using CosmicHorrorFishingBuddies.HarvestPOISync.Data;
 using CosmicHorrorFishingBuddies.PlayerSync;
 using Mirror;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace CosmicHorrorFishingBuddies.Core
@@ -12,11 +13,21 @@ namespace CosmicHorrorFishingBuddies.Core
 	{
 		public static CFBSpawnManager Instance;
 
-		private HarvestPOI _previouslyCreatedLocalHarvestPOI;
+		// Several spawns can be in flight at once (every pot in a save spawns in the same frame), so each request
+		// carries an id the server echoes back to match the network object to its local HarvestPOI
+		private readonly Dictionary<int, HarvestPOI> _pendingSpawns = new();
+		private int _nextSpawnRequest;
 
 		public void Awake()
 		{
 			Instance = this;
+		}
+
+		private int TrackSpawnRequest(HarvestPOI harvestPOI)
+		{
+			var requestID = _nextSpawnRequest++;
+			_pendingSpawns[requestID] = harvestPOI;
+			return requestID;
 		}
 
 		#region Bait
@@ -33,9 +44,7 @@ namespace CosmicHorrorFishingBuddies.Core
 				var yRot = GameManager.Instance.Player.BoatModelProxy.DeployPosition.eulerAngles.y;
 				var numFish = Mathf.CeilToInt(bait.HarvestPOIData.startStock);
 
-				_previouslyCreatedLocalHarvestPOI = bait;
-
-				CmdSpawnNetworkBait(zone, position, yRot, numFish, NetworkPlayer.LocalPlayer.netIdentity);
+				CmdSpawnNetworkBait(zone, position, yRot, numFish, TrackSpawnRequest(bait), NetworkPlayer.LocalPlayer.netIdentity);
 			}
 			catch (Exception e)
 			{
@@ -44,14 +53,14 @@ namespace CosmicHorrorFishingBuddies.Core
 		}
 
 		[Command(requiresAuthority = false)]
-		private void CmdSpawnNetworkBait(ZoneEnum zone, Vector3 position, float yRot, int numFish, NetworkIdentity sender)
+		private void CmdSpawnNetworkBait(ZoneEnum zone, Vector3 position, float yRot, int numFish, int requestID, NetworkIdentity sender)
 		{
 			var networkBaitHarvestPOI = CFBNetworkManager.BaitHarvestPOIPrefab.SpawnWithServerAuthority().GetComponent<NetworkBaitHarvestPOI>();
 
 			networkBaitHarvestPOI.SetBaitData(zone, position, yRot, numFish, sender.netId);
 
 			// Target the original creator so it can register its bait
-			SpawnNetworkPOICallback(sender.connectionToClient, networkBaitHarvestPOI);
+			SpawnNetworkPOICallback(sender.connectionToClient, networkBaitHarvestPOI, requestID);
 		}
 		#endregion
 
@@ -64,9 +73,7 @@ namespace CosmicHorrorFishingBuddies.Core
 
 				CFBCore.LogInfo($"Spawning network crab pot for {PlayerManager.LocalNetID}");
 
-				_previouslyCreatedLocalHarvestPOI = crabPot;
-
-				CmdSpawnNetworkCrabPot(new SerializedCrabPotPOIDataWrapper(crabPot.Harvestable as SerializedCrabPotPOIData), NetworkPlayer.LocalPlayer.netIdentity);
+				CmdSpawnNetworkCrabPot(new SerializedCrabPotPOIDataWrapper(crabPot.Harvestable as SerializedCrabPotPOIData), TrackSpawnRequest(crabPot), NetworkPlayer.LocalPlayer.netIdentity);
 			}
 			catch (Exception e)
 			{
@@ -75,22 +82,30 @@ namespace CosmicHorrorFishingBuddies.Core
 		}
 
 		[Command(requiresAuthority = false)]
-		private void CmdSpawnNetworkCrabPot(SerializedCrabPotPOIDataWrapper crabPotData, NetworkIdentity sender)
+		private void CmdSpawnNetworkCrabPot(SerializedCrabPotPOIDataWrapper crabPotData, int requestID, NetworkIdentity sender)
 		{
-			var networkPlacedHarvestPOI = CFBNetworkManager.PlacedHarvestPOIPrefab.SpawnWithServerAuthority().GetComponent<NetworkPlacedHarvestPOI>();
-
+			var crabPot = CFBNetworkManager.PlacedHarvestPOIPrefab.InstantiateInactive();
+			var networkPlacedHarvestPOI = crabPot.GetComponent<NetworkPlacedHarvestPOI>();
 			networkPlacedHarvestPOI.SetCrabPotData(crabPotData, sender.netId);
+			crabPot.SetActive(true);
+			NetworkServer.Spawn(crabPot, NetworkServer.localConnection);
 
-			// Target the original creator so it can register its bait
-			SpawnNetworkPOICallback(sender.connectionToClient, networkPlacedHarvestPOI);
+			// Target the original creator so it can register its crab pot
+			SpawnNetworkPOICallback(sender.connectionToClient, networkPlacedHarvestPOI, requestID);
 		}
 		#endregion
 
 		[TargetRpc]
-		private void SpawnNetworkPOICallback(NetworkConnectionToClient _, NetworkHarvestPOI networkPOI)
+		private void SpawnNetworkPOICallback(NetworkConnectionToClient _, NetworkHarvestPOI networkPOI, int requestID)
 		{
-			networkPOI.Target = _previouslyCreatedLocalHarvestPOI;
-			_previouslyCreatedLocalHarvestPOI = null;
+			if (!_pendingSpawns.TryGetValue(requestID, out var harvestPOI))
+			{
+				CFBCore.LogError($"No pending spawn request {requestID}");
+				return;
+			}
+			_pendingSpawns.Remove(requestID);
+
+			networkPOI.Target = harvestPOI;
 
 			if (networkPOI is NetworkBaitHarvestPOI networkBait)
 			{
