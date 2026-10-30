@@ -110,6 +110,7 @@ namespace CosmicHorrorFishingBuddies.PlayerSync
 		public void NetTypeHook(int prev, int current) => RefreshNetType();
 
 		public UnityEvent RefreshBoatModel = new();
+		public UnityEvent NetsRefreshed = new();
 
 		public BoatSubModelToggler[] boatSubModelTogglers;
 		public BoatModelProxy[] boatModelProxies;
@@ -213,6 +214,8 @@ namespace CosmicHorrorFishingBuddies.PlayerSync
 							{
 								nets.ForEach(n => n.gameObject.SetActive(false));
 							}
+
+							NetsRefreshed.Invoke();
 						}
 						catch (Exception e)
 						{

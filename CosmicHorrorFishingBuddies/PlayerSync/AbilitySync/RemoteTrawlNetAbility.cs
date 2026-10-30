@@ -1,7 +1,8 @@
-﻿using CosmicHorrorFishingBuddies.Core;
+﻿using CosmicHorrorFishingBuddies.AudioSync;
 using CosmicHorrorFishingBuddies.PlayerSync.AbilitySync.Base;
 using DG.Tweening;
 using System;
+using UnityEngine;
 
 namespace CosmicHorrorFishingBuddies.PlayerSync.AbilitySync
 {
@@ -10,44 +11,50 @@ namespace CosmicHorrorFishingBuddies.PlayerSync.AbilitySync
 		// Have to adjust the rotation of the trawl net - will be unnessecary when rigidbodies work
 		private Tween _rotationTween;
 
+		private bool _wasActive;
+
 		public override Type AbilityType => typeof(TrawlNetAbility);
+
+		public override void Start()
+		{
+			base.Start();
+			_networkPlayer.remotePlayerBoatGraphics.NetsRefreshed.AddListener(ApplyNetState);
+		}
+
+		public void OnDestroy()
+		{
+			_networkPlayer.remotePlayerBoatGraphics.NetsRefreshed.RemoveListener(ApplyNetState);
+		}
 
 		protected override void OnToggleRemote(bool active)
 		{
-			// Temporary fix that I will never fix haha
-			// RunWhen bc there's an NRE otherwise idk
-			Delay.RunWhen(
-				() => _networkPlayer?.remotePlayerBoatGraphics?.CurrentBoatModelProxy?.GetTrawlNetAnimator() != null,
-				() =>
-				{
-					// Have to wait a frame else initial state isn't properly received
-					Delay.FireOnNextUpdate(() =>
-					{
-						try
-						{
-							_networkPlayer.remotePlayerBoatGraphics.CurrentBoatModelProxy.GetTrawlNetAnimator().SetBool("isDeployed", active);
-							var trawlNet = _networkPlayer.remotePlayerBoatGraphics.CurrentBoatModelProxy.transform.Find("TrawlNet/TrawlArmature/TrawlArm/Net");
-							if (active)
-							{
-								_networkPlayer.RemotePlayOneShot(AudioSync.AudioEnum.TRAWL_ACTIVATE, 1f, 1f);
-								_rotationTween?.Kill();
-								_rotationTween = trawlNet.DOLocalRotate(new UnityEngine.Vector3(90, 0, 0), 1f);
-							}
-							else
-							{
-								_networkPlayer.RemotePlayOneShot(AudioSync.AudioEnum.TRAWL_END, 1f, 1f);
-								_rotationTween?.Kill();
-								_rotationTween = trawlNet.DOLocalRotate(new UnityEngine.Vector3(0, 0, 0), 1f);
-								_rotationTween.SetDelay(2f);
-							}
-						}
-						catch (Exception ex)
-						{
-							CFBCore.LogError(ex);
-						}
-					});
-				}
-			);
+			if (active != _wasActive)
+			{
+				_networkPlayer.RemotePlayOneShot(active ? AudioEnum.TRAWL_ACTIVATE : AudioEnum.TRAWL_END, 1f, 1f);
+			}
+			_wasActive = active;
+
+			ApplyNetState();
+		}
+
+		/// <summary>
+		/// The remote boat swaps its model and nets for a while after spawning, so the state is reapplied on every
+		/// net refresh rather than once.
+		/// </summary>
+		private void ApplyNetState()
+		{
+			var boat = _networkPlayer.remotePlayerBoatGraphics.CurrentBoatModelProxy;
+			var animator = boat == null ? null : boat.GetTrawlNetAnimator();
+			if (animator == null) return;
+
+			animator.SetBool("isDeployed", IsActive);
+
+			var trawlNet = boat.transform.Find("TrawlNet/TrawlArmature/TrawlArm/Net");
+			if (trawlNet == null) return;
+
+			_rotationTween?.Kill();
+			_rotationTween = trawlNet.DOLocalRotate(IsActive ? new Vector3(90, 0, 0) : Vector3.zero, 1f);
+			if (!IsActive) _rotationTween.SetDelay(2f);
 		}
 	}
 }
