@@ -25,9 +25,6 @@ namespace CosmicHorrorFishingBuddies.BaseSync
 
 			_syncedTransform = isOwned ? InitLocalTransform() : InitRemoteTransform();
 
-			_networkTransform.transform.position = Vector3.zero;
-			_networkTransform.transform.rotation = Quaternion.identity;
-
 			_networkTransform.target = _syncedTransform;
 		}
 	}
