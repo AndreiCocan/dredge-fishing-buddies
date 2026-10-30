@@ -1,6 +1,7 @@
 using CosmicHorrorFishingBuddies.Core;
 using CosmicHorrorFishingBuddies.HarvestPOISync;
 using CosmicHorrorFishingBuddies.PlayerSync;
+using CosmicHorrorFishingBuddies.WorldEventSync;
 using HarmonyLib;
 using System;
 using System.Collections;
@@ -31,6 +32,11 @@ internal static class Scenarios
 			ctx => ChangeWeather(ctx, "weather.host"), ctx => FollowWeather(ctx, "weather.host")),
 		new("a client's weather change reaches the host in the same zone",
 			ctx => FollowWeather(ctx, "weather.client"), ctx => ChangeWeather(ctx, "weather.client")),
+		new("the host switching the banish machine on switches it on for the other player", ActivateBanishMachine, ExpectBanishMachineActive),
+		new("fishing a restocking spot lowers its stock for the other player",
+			ctx => WatchSpotStock(ctx, "spot.restocking", expectChange: true), ctx => HarvestSpot(ctx, "spot.restocking", restocks: true)),
+		new("dredging a one-off spot (quest relics) leaves it for the other player",
+			ctx => WatchSpotStock(ctx, "spot.oneoff", expectChange: false), ctx => HarvestSpot(ctx, "spot.oneoff", restocks: false)),
 		TestScenario.Both("the mod logged no errors", NoModErrors),
 	};
 
@@ -253,6 +259,73 @@ internal static class Scenarios
 		yield return Expect.Until(() => CurrentWeather() == weather, 10,
 			$"{ctx.OtherRole}'s weather {weather} (have {CurrentWeather()})");
 		ctx.Share(key + ".seen", "");
+	}
+
+	private static IEnumerator ActivateBanishMachine(TestContext ctx)
+	{
+		var machine = BanishMachineSync.Machine;
+		Expect.That(machine != null, "the banish machine is not in the world");
+
+		machine.ActivateBanishMachine();
+		ctx.Share("banish.expiry", GameManager.Instance.SaveData.BanishMachineExpiry);
+		yield return ctx.Receive("banish.seen", _ => { }, 15);
+	}
+
+	private static IEnumerator ExpectBanishMachineActive(TestContext ctx)
+	{
+		var expiry = 0f;
+		yield return ctx.Receive("banish.expiry", s => expiry = float.Parse(s, CultureInfo.InvariantCulture));
+
+		yield return Expect.Until(
+			() => Mathf.Approximately(GameManager.Instance.SaveData.BanishMachineExpiry, expiry)
+				&& BanishMachineSync.Machine != null && BanishMachineSync.Machine.isBanishMachineActive,
+			10,
+			$"the banish machine on until {expiry} (expiry here {GameManager.Instance.SaveData.BanishMachineExpiry}, " +
+			$"active {BanishMachineSync.Machine != null && BanishMachineSync.Machine.isBanishMachineActive})");
+		ctx.Share("banish.seen", "");
+	}
+
+	private static float Stock(HarvestPOI spot) => spot.Harvestable.GetStockCount(ignoreTimeOfDay: false);
+
+	private static HarvestPOI SpotAt(Vector2 position) => NetworkHarvestPOIManager.Instance.SortedHarvestPOIs
+		.FirstOrDefault(spot => spot != null && Vector2.Distance(XZ(spot.transform.position), position) < 0.1f);
+
+	private static IEnumerator HarvestSpot(TestContext ctx, string key, bool restocks)
+	{
+		var spot = NetworkHarvestPOIManager.Instance.SortedHarvestPOIs.FirstOrDefault(s =>
+			s != null && !s.IsCrabPotPOI && !s.IsBaitPOI && s.Harvestable.GetDoesRestock() == restocks && Stock(s) >= 1f);
+		Expect.That(spot != null, $"no {(restocks ? "restocking" : "one-off")} spot with stock in this save");
+
+		var position = XZ(spot.transform.position);
+		ctx.Share(key, FormattableString.Invariant($"{position.x},{position.y}"));
+		yield return ctx.Receive(key + ".ready", _ => { });
+
+		spot.OnHarvested(deductFromStock: true);
+		ctx.Share(key + ".harvested", "");
+		yield return ctx.Receive(key + ".checked", _ => { }, 20);
+	}
+
+	private static IEnumerator WatchSpotStock(TestContext ctx, string key, bool expectChange)
+	{
+		var position = Vector2.zero;
+		yield return ctx.Receive(key, s => position = ParseXZ(s));
+		var spot = SpotAt(position);
+		Expect.That(spot != null, $"no spot at {position} here");
+		var before = Stock(spot);
+		ctx.Share(key + ".ready", "");
+
+		yield return ctx.Receive(key + ".harvested", _ => { });
+		if (expectChange)
+		{
+			yield return Expect.Until(() => Stock(spot) <= before - 0.5f, 10,
+				$"{ctx.OtherRole}'s harvest to lower the stock here from {before} (now {Stock(spot)})");
+		}
+		else
+		{
+			yield return new WaitForSeconds(3);
+			Expect.That(Stock(spot) >= before, $"{ctx.OtherRole}'s harvest took the item here too ({before} -> {Stock(spot)})");
+		}
+		ctx.Share(key + ".checked", "");
 	}
 
 	private static IEnumerator NoModErrors(TestContext ctx)
